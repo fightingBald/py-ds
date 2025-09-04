@@ -1,6 +1,7 @@
 package a_basic_type
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 )
@@ -21,8 +22,13 @@ import (
 // 1. SumInts：计算整数切片中所有元素之和。
 // func SumInts(nums []int) int
 func SumInts(nums []int) int {
+	result := 0
+	for i, v := range nums {
+		fmt.Println(i, v)
+		result += v
+	}
+	return result
 
-	panic("implement me")
 }
 
 func TestSumInts(t *testing.T) {
@@ -48,7 +54,10 @@ func TestSumInts(t *testing.T) {
 // 目的是体会 append 与容量变化。
 // func AppendAndReturnCap(s []int, vals []int) int
 func AppendAndReturnCap(s []int, vals []int) int {
-	panic("implement me")
+	for _, v := range vals {
+		s = append(s, v)
+	}
+	return cap(s)
 }
 
 func TestAppendAndReturnCap(t *testing.T) {
