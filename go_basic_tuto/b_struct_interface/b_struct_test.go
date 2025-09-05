@@ -17,13 +17,13 @@ interface 可以嵌套别的 interface
 // 1. 定义一个结构体
 //要求 1: struct 字段
 //定义一个 Account struct，字段设计：
-//ID：账号 ID（public，因为需要暴露给包外使用）
+//id：账号 id（public，因为需要暴露给包外使用）
 //owner：账户持有人姓名（private）
 //balance：余额（private，单位分，int64）
 //createdAt：开户日期（只读，包外能看，不能改）
 // ====== 1) 结构体：字段可见性与只读 ======
 type Account struct {
-	ID        string    // public：对外暴露
+	id        string    // public：对外暴露
 	owner     string    // private：对外不可直接改
 	balance   int64     // private：只能通过方法改
 	createdAt time.Time // private：只读，getter 暴露
@@ -32,10 +32,10 @@ type Account struct {
 // 要求 2: 构造器
 // 写一个 NewAccount(owner string, initBalance int64) (*Account, error)
 // 要求检查 initBalance >= 0
-// 自动生成 ID（比如 "ACC-001"）
+// 自动生成 id（比如 "ACC-001"）
 // 初始化 createdAt = 当前时间
 
-// ====== ID 生成（示例用原子计数器） ======
+// ====== id 生成（示例用原子计数器） ======
 var accSeq int64
 
 func nextAccountID() string {
@@ -50,7 +50,7 @@ func NewAccount(owner string, initBalance int64) (*Account, error) {
 		return nil, fmt.Errorf("initial balance cannot be negative")
 	}
 	return &Account{
-		ID:        nextAccountID(),
+		id:        nextAccountID(),
 		owner:     owner,
 		balance:   initBalance,
 		createdAt: time.Now(),
@@ -106,6 +106,17 @@ func (a *Account) Withdraw(amount int64) error {
 	return nil
 }
 
+// 给 Account 添个 id() 方法以满足接口
+func (a *Account) ID() string { return a.id }
+
+//
+//要求 6: 组合
+//定义一个 Logger struct，提供方法：
+//func (Logger) Log(msg string)
+//再定义一个 SecureAccount：
+//内嵌 Account + Logger
+//重写 Withdraw 方法：先 Log 一条“安全检查”，再调用原始 Withdraw
+
 func TestAccount(t *testing.T) {
 
 	acc, err := NewAccount("Alice", 10000)
@@ -113,8 +124,6 @@ func TestAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal("NewAccount error:", err)
 	}
-	fmt.Printf("New account: ID=%s, Owner=%s, Balance=%d, CreatedAt=%s\n",
-		acc.ID, acc.Owner(), acc.Balance(), acc.CreatedAt().Format(time.RFC3339))
 
 	err = acc.Deposit(5000)
 	if err != nil {
