@@ -109,13 +109,40 @@ func (a *Account) Withdraw(amount int64) error {
 // 给 Account 添个 id() 方法以满足接口
 func (a *Account) ID() string { return a.id }
 
-//
-//要求 6: 组合
-//定义一个 Logger struct，提供方法：
-//func (Logger) Log(msg string)
-//再定义一个 SecureAccount：
-//内嵌 Account + Logger
-//重写 Withdraw 方法：先 Log 一条“安全检查”，再调用原始 Withdraw
+// 要求 6: 组合
+// 定义一个 Logger struct，提供方法：
+// func (Logger) Log(msg string)
+// 再定义一个 SecureAccount：
+// 内嵌 Account + Logger
+// 重写 Withdraw 方法：先 Log 一条“安全检查”，再调用原始 Withdraw
+
+/*
+Go 没有 override ，但能通过组合（embedding）+ 包裹类方法覆盖，能
+Go 没有类/继承（class / subclass），所以没有传统意义上的“子类重写父类方法”。
+但是，模拟“重写”的效果
+Go 没有类/继承（class / subclass），所以没有传统意义上的“子类重写父类方法”。
+
+. Go 没有 overload
+Go 不支持函数重载（同名不同参数类型/个数）。
+在一个包里，函数名必须唯一。
+*/
+type Logger struct{}
+
+func (Logger) Log(msg string) {
+	// 真项目可接入 zap/log/slog，这里先 fmt
+	fmt.Println("[LOG]", msg)
+}
+
+type SecureAccount struct {
+	*Account // 嵌入：继承其方法集（组合优于继承）
+	Logger   // 叠加日志能力
+}
+
+// “重写” Withdraw：先打日志再调用被包装对象的方法
+func (s *SecureAccount) Withdraw(amount int64) error {
+	s.Log(fmt.Sprintf("security check before withdraw: id=%s amount=%d", s.ID, amount))
+	return s.Account.Withdraw(amount)
+}
 
 func TestAccount(t *testing.T) {
 
