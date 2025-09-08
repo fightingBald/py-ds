@@ -2,8 +2,10 @@ package d_concurrency
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"sync"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -83,176 +85,344 @@ Go 官方直接给你塞了个统一的东西：context.Context。
 	但注意：不是给你当 map 用的，官方说只能放“跨 API 边界的请求级参数”。
 */
 
-// 工具：安全地从 ctx 等待，返回是否被取消
-func waitUntilCanceled(ctx context.Context, max time.Duration) bool {
-	timer := time.NewTimer(max)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return true
-	case <-timer.C:
-		return false
-	}
-}
-
-// 1) 取消传播：父协程取消，子协程立刻收摊
+/*************** 共用的 worker 和小工具 ***************/
+// 周期性干活，直到 ctx 结束。结束时向 stopped channel 发信号。
 /*
-
-父 ctx cancel 后，所有拿着这个 ctx 的 goroutine 都必须立刻感知并退出。
-教你把退出条件写进 select { case <-ctx.Done(): ... }，而不是写在循环外面“碰运气”。
-
-你要学到：
-“广播式取消”是官方姿势，不要自造一堆 done channel。
-用原子状态/断言确保 worker 真退了，别留内存泄漏。
-
-
+周期性干活（用 time.Ticker 每隔一段时间触发）。
+一旦 <-ctx.Done() 可读，立刻收摊退出。
+退出前，往 stopped 里发个空 struct，通知测试：“我确实死了”。
 */
-var stopped atomicBool
-
-func workerTask(ctx context.Context, name string) {
+func workerLoop(ctx context.Context, name string, tick time.Duration, stopped chan<- struct{}) {
+	defer func() { stopped <- struct{}{} }() //退出前，往 stopped 里发个空 struct，通知测试：“我确实死了”。
+	ticker := time.NewTicker(tick)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			fmt.Println(name, "stopped:", ctx.Err())
 			return
-		default:
-			fmt.Println(name, "working...")
-			time.Sleep(300 * time.Millisecond)
+		case <-ticker.C:
+			// 模拟一轮活
+			_ = name // 这里不打印，避免噪音
 		}
 	}
 }
+
+// 读取 ctx 里的值，传回结果（演示 WithValue 传递）
+
+/*
+mustWithin
+测试工具函数：在给定时间 d 内，反复检查某个条件函数 fn() 是否变 true。
+如果超时还没变 true，就 t.Fatal(msg) 直接失败。
+相当于测试里的“轮询断言
+*/
+func mustWithin(t *testing.T, fn func() bool, d time.Duration, msg string) {
+	dead := time.After(d)
+	for {
+		select {
+		case <-dead:
+			t.Fatal(msg)
+		default:
+			if fn() {
+				return
+			}
+			time.Sleep(2 * time.Millisecond)
+		}
+	}
+}
+
+/******************** 1) 取消传播 ********************/
 
 func TestCancelPropagation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// 父工人
-	go func() {
-		// 子工人
-		go workerTask(ctx, "child-1")
-		go workerTask(ctx, "child-2")
-	}()
+	stop1 := make(chan struct{}, 1)
+	stop2 := make(chan struct{}, 1)
 
-	time.Sleep(1 * time.Second)
-	cancel() // 广播信号：全家收工
-	time.Sleep(500 * time.Millisecond)
+	go workerLoop(ctx, "child-1", 20*time.Millisecond, stop1)
+	go workerLoop(ctx, "child-2", 20*time.Millisecond, stop2)
+
+	time.Sleep(80 * time.Millisecond) // 让他们真在跑
+	cancel()                          // 广播“收工”
+
+	mustWithin(t,
+		func() bool {
+			select {
+			case <-ctx.Done():
+				return true
+			default:
+				return false
+			}
+		},
+		150*time.Millisecond,
+		"context not canceled in time",
+	)
+
+	mustWithin(t, func() bool {
+		select {
+		case <-stop1:
+			return true
+		default:
+			return false
+		}
+	}, 150*time.Millisecond, "child-1 did not stop")
+
+	mustWithin(t, func() bool {
+		select {
+		case <-stop2:
+			return true
+		default:
+			return false
+		}
+	}, 150*time.Millisecond, "child-2 did not stop")
 }
 
-// 2) 超时：到点不等了，返回 context.DeadlineExceeded
-func TestTimeout(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
+/*
+解说与观察：
+- 你会看到：两个 worker 在 cancel() 后很快退出，ctx.Done() 变为可读。
+- 结论：父 cancel 会“广播式”传到所有拿着同一个 ctx 的 goroutine。
+- 要点：在循环里 select `<-ctx.Done()` 才能及时响应，不要放循环外面碰运气。
+*/
 
+/******************** 2) 超时控制（WithTimeout） ********************/
+//教你用 context.WithTimeout 给下游“IO风格任务”设硬超时，并验证两件事：
+//超时后返回 context.DeadlineExceeded，2) 返回时间大致在你设的 80ms 附近，而不是等到 300ms 才磨蹭完。
+// 一个“IO”任务：要么等到 workDur 完成，要么被 ctx 打断。
+func workerIO(ctx context.Context, workDur time.Duration) error {
 	select {
-	case <-time.After(200 * time.Millisecond): // 假装下游卡住很久
-		t.Fatal("should have timed out")
 	case <-ctx.Done():
-		if ctx.Err() != context.DeadlineExceeded {
-			t.Fatalf("expected DeadlineExceeded, got %v", ctx.Err())
-		}
+		fmt.Printf("Exceed 80*time.Millisecond, return [%v] \n", ctx.Err()) //context deadline exceeded
+		return ctx.Err()
+	case <-time.After(workDur):
+		return nil
 	}
 }
 
-// 3) 截止时间：指定绝对时间点
-func TestDeadline(t *testing.T) {
+func TestWithTimeout(t *testing.T) {
+	//WithTimeout(80ms) 给调用包了个 SLA：80ms 内不完成就算你输。
+	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+
+	defer cancel()
+
+	start := time.Now()
+
+	err := workerIO(ctx, 300*time.Millisecond)
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("want DeadlineExceeded, got %v", err)
+	}
+	elapsed := time.Since(start)
+	if elapsed < 70*time.Millisecond || elapsed > 200*time.Millisecond {
+		t.Fatalf("timeout fired oddly, elapsed=%v", elapsed)
+	}
+}
+
+/*
+解说与观察：
+- 你会看到：任务没做完就被打断，并返回 DeadlineExceeded。
+- 结论：WithTimeout 本质就是在 ctx 上挂了 time.Timer，到点自动 cancel。
+- 要点：即便超时了，也要 defer cancel()，不然 timer 和子节点可能泄漏。
+*/
+
+/******************** 3) 截止时间（WithDeadline） ********************/
+//- 你会看到：在指定时刻自动结束，和 WithTimeout 作用等价，接口不同。
+//- 结论：适合统一以“绝对时间点”管理多段工作（比如全链路硬截止）。
+func TestWithDeadline(t *testing.T) {
 	deadline := time.Now().Add(60 * time.Millisecond)
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+
 	defer cancel()
 
-	<-ctx.Done()
-	if ctx.Err() != context.DeadlineExceeded {
-		t.Fatalf("expected DeadlineExceeded, got %v", ctx.Err())
+	err := workerIO(ctx, 300*time.Millisecond)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("want DeadlineExceeded, got %v", err)
 	}
 }
 
-// 4) 传值（轻量元数据）：trace id 往下传
-type ctxKey string
+/*
+解说与观察：
+- 你会看到：在指定时刻自动结束，和 WithTimeout 作用等价，接口不同。
+- 结论：适合统一以“绝对时间点”管理多段工作（比如全链路硬截止）。
+*/
 
-func TestWithValue(t *testing.T) {
-	const traceKey ctxKey = "traceID"
-	traceID := "req-12345"
+/******************** 4) 请求级元数据（WithValue） ********************/
+type ctxKey struct{}
 
-	ctx := context.WithValue(context.Background(), traceKey, traceID)
-
-	got, _ := ctx.Value(traceKey).(string)
-	if got != traceID {
-		t.Fatalf("expected %s, got %s", traceID, got)
-	}
-	// 反例：取不存在的 key 返回 nil
-	if v := ctx.Value(ctxKey("nope")); v != nil {
-		t.Fatal("unexpected value for missing key")
-	}
+func workerReadValue(ctx context.Context, out chan<- string) {
+	v, _ := ctx.Value(ctxKey{}).(string)
+	out <- v //把拿到的 traceID 发到通道里。
 }
 
-// 5) 配合 WaitGroup：先 cancel 再等，干净退出
-func TestCancelWithWaitGroup(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+// parent := context.WithValue(context.Background(), ctxKey{}, "trace-abc123")
+// WithValue 会生成一个 新的 context，内部多存了一条键值对：
+// key = ctxKey{}，value = "trace-abc123"。
+// 官方强烈建议：
+// 用你自己定义的私有类型做 key，避免和别人打架
+// 这就是 type ctxKey struct{} 的作用：一个不会和别人重复的独立类型。
+// parent 里就带上了这个 trace id。
+// 为啥“再包一层”？
+// 因为 context 在 Go 里是不可变的，每次加数据或加超时，都会返回一个新对象，内部指向父 context。这样形成一个链表式的“上下文链”。
+func TestWithValuePropagation(t *testing.T) {
+	parent := context.WithValue(context.Background(), ctxKey{}, "trace-abc123")
+	child, cancel := context.WithCancel(parent)
 	defer cancel()
 
-	var wg sync.WaitGroup
-	startWorkers := func(n int) {
-		wg.Add(n)
-		for i := 0; i < n; i++ {
-			go func(id int) {
-				defer wg.Done()
-				for {
-					select {
-					case <-ctx.Done():
-						// 收尾动作放这里，比如释放连接、flush 缓冲等
-						return
-					default:
-						time.Sleep(5 * time.Millisecond)
-					}
-				}
-			}(i)
+	out := make(chan string, 1)
+	go workerReadValue(child, out)
+
+	select {
+	case got := <-out: //从通道里读出 traceID
+		if got != "trace-abc123" {
+			t.Fatalf("value lost, got=%q", got)
 		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("reader blocked")
 	}
+}
 
-	startWorkers(5)
-	time.Sleep(20 * time.Millisecond) // 让大家跑两步
-	cancel()                          // 广播取消
-	done := make(chan struct{})
-	go func() { wg.Wait(); close(done) }()
+/*
+解说与观察：
+- 你会看到：子协程能读到父 ctx 写入的 traceID。
+- 结论：WithValue 通过父子链向上查值，适合传“轻量”请求元数据。
+- 要点：key 用自定义私有类型，避免冲突；别往里面塞 DB 连接这类重物。
+*/
+
+/******************** 5) ctx 结束时的清理（AfterFunc） ********************/
+
+func TestAfterFunc(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{}, 1)
+
+	stop := context.AfterFunc(ctx, func() {
+		// 清理动作，例如：释放缓存、打点上报
+		done <- struct{}{}
+	})
+	defer stop()
+
+	cancel() // 触发 after-func
 
 	select {
 	case <-done:
 		// ok
-	case <-time.After(300 * time.Millisecond):
-		t.Fatal("workers did not exit after cancel")
+	case <-time.After(150 * time.Millisecond):
+		t.Fatal("after-func did not run")
 	}
 }
 
-// 6) 给外部调用包一层优雅超时（最贴近真实项目）
-func doSlowOp(ctx context.Context, d time.Duration) error {
-	select {
-	case <-time.After(d):
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+/*
+解说与观察：
+- 你会看到：cancel() 后，注册的回调被执行。
+- 结论：AfterFunc 允许把收尾逻辑挂在 ctx 生命周期上。
+- 要点：函数返回的 stop() 可以尝试阻止未执行的回调，记得在合适时机调用。
+*/
+
+/******************** 6) 取消原因（WithCancelCause / Cause） ********************/
+
+func TestWithCancelCause(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	cause := errors.New("auth failed")
+	cancel(cause)
+
+	<-ctx.Done()
+	if !errors.Is(context.Cause(ctx), cause) {
+		t.Fatalf("want cause=%v, got %v", cause, context.Cause(ctx))
 	}
 }
-func TestWrapOperationWithTimeout(t *testing.T) {
-	// 业务层给下游设 80ms 超时
+
+/*
+解说与观察：
+- 你会看到：不仅知道“被取消”，还能拿到具体原因。
+- 结论：比只有 Canceled/DeadlineExceeded 更可观测，排错更省心。
+*/
+
+/******************** 7) 切断取消链（WithoutCancel） ********************/
+
+func TestWithoutCancel(t *testing.T) {
+	parent := context.WithValue(context.Background(), ctxKey{}, "req-999")
+	parent, parentCancel := context.WithTimeout(parent, 60*time.Millisecond)
+	defer parentCancel()
+
+	child := context.WithoutCancel(parent) // 不继承取消，只继承 Value
+
+	// value 应保留
+	if got := child.Value(ctxKey{}).(string); got != "req-999" {
+		t.Fatalf("value not preserved, got=%v", got)
+	}
+
+	// 等父亲超时
+	<-parent.Done()
+
+	// child 不应该被取消
+	select {
+	case <-child.Done():
+		t.Fatal("child should not be canceled by parent")
+	case <-time.After(40 * time.Millisecond):
+		// ok
+	}
+}
+
+/*
+解说与观察：
+- 你会看到：父亲死了，child 仍活着，但它仍然携带 Value。
+- 结论：当你不想被上游 cancel 误伤、但还想带着元数据下沉时，用它。
+- 要点：别滥用，切断取消链会破坏上游的“全链路生杀权”。
+*/
+
+/******************** 8) HTTP 中的 ctx（请求超时） ********************/
+
+func TestHTTPWithContextTimeout(t *testing.T) {
+	// 模拟慢服务
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		fmt.Fprintln(w, "ok")
+	}))
+	defer srv.Close()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
 	defer cancel()
 
-	err := doSlowOp(ctx, 200*time.Millisecond)
-	if err == nil || err != context.DeadlineExceeded {
-		t.Fatalf("expected DeadlineExceeded, got %v", err)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
+	client := &http.Client{} // 不用 client.Timeout，纯靠 ctx
 
-	// 快速路径应该不报错
-	ctx2, cancel2 := context.WithTimeout(context.Background(), time.Second)
-	defer cancel2()
-	if err := doSlowOp(ctx2, 10*time.Millisecond); err != nil {
-		t.Fatalf("unexpected err: %v", err)
+	_, err = client.Do(req)
+	if err == nil {
+		t.Fatal("expected cancellation error, got nil")
 	}
 }
 
-/******** 小工具：原子 bool，避免引第三方库 ********/
-type atomicBool struct {
-	mu sync.Mutex
-	v  bool
+/*
+解说与观察：
+- 你会看到：客户端 80ms 超时，HTTP 请求中断，Do 返回错误。
+- 结论：HTTP、数据库等标准库/驱动普遍支持 Context，拿着它就能“随时掐电”。
+- 要点：server 端 Handler 里也能读 r.Context()，向下游传递取消信号。
 }
 
-func (a *atomicBool) set(b bool) { a.mu.Lock(); a.v = b; a.mu.Unlock() }
-func (a *atomicBool) get() bool  { a.mu.Lock(); defer a.mu.Unlock(); return a.v }
+/******************** 9) 循环里的优雅退出（worker 版） ********************/
+
+func TestWorkerLoopWithCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	stopped := make(chan struct{}, 1)
+	go workerLoop(ctx, "loop", 30*time.Millisecond, stopped)
+
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-stopped:
+		// ok
+	case <-time.After(150 * time.Millisecond):
+		t.Fatal("worker did not stop in time")
+	}
+}
+
+/*
+解说与观察：
+- 你会看到：循环型 worker 能在 cancel 后很快结束。
+- 结论：select + ticker 是循环任务的惯用骨架，别写死循环不看 Done。
+- 要点：ticker.Stop() 别忘了，不然测试多了你自己卡死。
+*/
