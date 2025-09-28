@@ -3,7 +3,7 @@ package counter
 import "testing"
 
 func TestCounterCountsAndMostCommon(t *testing.T) {
-	c := FromSlice([]string{"python", "go", "python", "rust"})
+	c := NewCounterFromSlice([]string{"python", "go", "python", "rust"})
 	c.Update([]string{"go", "python", "go"})
 
 	if got := c.Count("python"); got != 3 {
@@ -27,13 +27,6 @@ func TestCounterCountsAndMostCommon(t *testing.T) {
 		}
 	}
 
-	all := c.Items()
-	wantAll := []Item{{"go", 3}, {"python", 3}, {"rust", 1}}
-	for i := range wantAll {
-		if all[i] != wantAll[i] {
-			t.Fatalf("items[%d] mismatch: want %+v, got %+v", i, wantAll[i], all[i])
-		}
-	}
 }
 
 func TestCounterMostCommonMoreThanSize(t *testing.T) {

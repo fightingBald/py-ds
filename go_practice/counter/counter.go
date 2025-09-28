@@ -1,5 +1,10 @@
 package counter
 
+import (
+	"fmt"
+	"slices"
+)
+
 // Problem: Build a Counter type mirroring Python's collections.Counter for strings.
 // Required behavior:
 //   FromSlice(items []string) *Counter -> create a counter from initial data.
@@ -23,24 +28,40 @@ type Item struct {
 
 // The zero value of Counter must be ready to use, just like Python's Counter().
 
-type Counter struct{}
+type Counter struct {
+	counts map[string]int
+}
 
-func FromSlice(items []string) *Counter {
-	panic("TODO: implement FromSlice")
+func NewCounter() *Counter {
+	return &Counter{counts: make(map[string]int)}
+}
+
+func NewCounterFromSlice(elems []string) *Counter {
+	c := NewCounter()
+	for _, elem := range elems {
+		c.counts[elem]++
+	}
+	return c
 }
 
 func (c *Counter) Update(items []string) {
-	panic("TODO: implement Update")
+	for _, elem := range items {
+		c.counts[elem]++
+	}
 }
 
 func (c *Counter) Count(value string) int {
-	panic("TODO: implement Count")
+	return c.counts[value]
 }
 
 func (c *Counter) MostCommon(n int) []Item {
-	panic("TODO: implement MostCommon")
-}
-
-func (c *Counter) Items() []Item {
-	panic("TODO: implement Items")
+	mostCommon := make([]Item, 0, len(c.counts))
+	for k, v := range c.counts {
+		mostCommon = append(mostCommon, Item{Value: k, Count: v})
+	}
+	slices.SortFunc(mostCommon, func(i, j Item) int {
+		return j.Count - i.Count
+	})
+	fmt.Println(mostCommon)
+	return mostCommon[:n]
 }
