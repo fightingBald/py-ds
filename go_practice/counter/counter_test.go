@@ -37,7 +37,7 @@ func TestCounterCountsAndMostCommon(t *testing.T) {
 }
 
 func TestCounterMostCommonMoreThanSize(t *testing.T) {
-	c := New()
+	var c Counter
 	c.Update([]string{"a", "b", "a"})
 
 	got := c.MostCommon(10)

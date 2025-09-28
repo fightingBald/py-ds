@@ -1,8 +1,7 @@
 package ordereddict
 
 // Problem: Implement an OrderedDict similar to Python's collections.OrderedDict for string keys and values.
-// Support these operations:
-//   New() *OrderedDict
+// Support these operations (the zero value of OrderedDict must be ready to use):
 //   (od *OrderedDict) Set(key string, value string) -> insert or update while preserving insertion order.
 //   (od *OrderedDict) Get(key string) (string, bool) -> retrieve value, reporting if the key exists.
 //   (od *OrderedDict) Delete(key string)            -> remove a key; panic if missing.
@@ -12,7 +11,7 @@ package ordereddict
 //   (od *OrderedDict) Items() []Item -> ordered pairs representing the dictionary state.
 //
 // Example follow-up from Python docs:
-//   od := New()
+//   var od OrderedDict
 //   od.Set("py", "Python")
 //   od.Set("go", "Go")
 //   od.MoveToEnd("py", true) // py now last
@@ -25,10 +24,6 @@ type Item struct {
 }
 
 type OrderedDict struct{}
-
-func New() *OrderedDict {
-	panic("TODO: implement New")
-}
 
 func (od *OrderedDict) Set(key string, value string) {
 	panic("TODO: implement Set")

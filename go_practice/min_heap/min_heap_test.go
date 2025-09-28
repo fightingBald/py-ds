@@ -3,7 +3,7 @@ package minheap
 import "testing"
 
 func TestMinHeapOrdering(t *testing.T) {
-	h := New()
+	var h MinHeap
 
 	inputs := []int{5, 1, 4, 2, 3}
 	for _, v := range inputs {
@@ -28,7 +28,7 @@ func TestMinHeapOrdering(t *testing.T) {
 }
 
 func TestMinHeapPeekEmpty(t *testing.T) {
-	h := New()
+	var h MinHeap
 
 	if _, ok := h.Peek(); ok {
 		t.Fatalf("peek on empty should report ok=false")
@@ -36,7 +36,7 @@ func TestMinHeapPeekEmpty(t *testing.T) {
 }
 
 func TestMinHeapPopEmptyPanics(t *testing.T) {
-	h := New()
+	var h MinHeap
 	mustPanic(t, func() { h.Pop() })
 }
 

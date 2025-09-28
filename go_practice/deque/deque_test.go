@@ -9,7 +9,7 @@ type operation struct {
 }
 
 func TestDequeSequence(t *testing.T) {
-	dq := New()
+	var dq Deque
 
 	steps := []operation{
 		{name: "append", value: 1},
@@ -51,7 +51,7 @@ func TestDequeSequence(t *testing.T) {
 }
 
 func TestDequePopEmptyPanics(t *testing.T) {
-	dq := New()
+	var dq Deque
 
 	mustPanic(t, func() { dq.Pop() })
 	mustPanic(t, func() { dq.PopLeft() })

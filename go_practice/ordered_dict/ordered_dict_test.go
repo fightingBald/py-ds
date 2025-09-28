@@ -3,7 +3,7 @@ package ordereddict
 import "testing"
 
 func TestOrderedDictOrderAndMove(t *testing.T) {
-	od := New()
+	var od OrderedDict
 
 	od.Set("py", "Python")
 	od.Set("go", "Go")
@@ -82,7 +82,7 @@ func TestOrderedDictOrderAndMove(t *testing.T) {
 }
 
 func TestOrderedDictDeleteMissingPanics(t *testing.T) {
-	od := New()
+	var od OrderedDict
 	mustPanic(t, func() { od.Delete("missing") })
 }
 

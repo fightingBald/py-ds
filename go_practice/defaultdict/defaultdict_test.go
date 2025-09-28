@@ -6,7 +6,8 @@ import (
 )
 
 func TestDefaultDictIntFactory(t *testing.T) {
-	dd := New[string, int](func() int { return 0 })
+	var dd DefaultDict[string, int]
+	dd.Init(func() int { return 0 })
 
 	if dd.Len() != 0 {
 		t.Fatalf("expected empty dict, got len=%d", dd.Len())
@@ -38,7 +39,8 @@ func TestDefaultDictIntFactory(t *testing.T) {
 }
 
 func TestDefaultDictSliceAggregates(t *testing.T) {
-	dd := New[string, []string](func() []string { return nil })
+	var dd DefaultDict[string, []string]
+	dd.Init(func() []string { return nil })
 
 	values := map[string][]string{
 		"py": []string{"django", "flask"},

@@ -2,7 +2,6 @@ package counter
 
 // Problem: Build a Counter type mirroring Python's collections.Counter for strings.
 // Required behavior:
-//   New() *Counter                    -> create an empty counter.
 //   FromSlice(items []string) *Counter -> create a counter from initial data.
 //   (c *Counter) Update(items []string) -> add counts from the slice.
 //   (c *Counter) Count(value string) int -> return how many times value appears.
@@ -22,11 +21,9 @@ type Item struct {
 	Count int
 }
 
-type Counter struct{}
+// The zero value of Counter must be ready to use, just like Python's Counter().
 
-func New() *Counter {
-	panic("TODO: implement New")
-}
+type Counter struct{}
 
 func FromSlice(items []string) *Counter {
 	panic("TODO: implement FromSlice")
