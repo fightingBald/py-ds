@@ -1,5 +1,7 @@
 package deque
 
+import "slices"
+
 // Problem: Implement a double-ended queue that mirrors Python's collections.deque behavior for integer values.
 // Support the following operations, all in amortized O(1) time:
 //   (d *Deque) Append(v int)      -> add v to the right end.
@@ -18,24 +20,36 @@ package deque
 //
 // Fill in the missing implementation so all provided tests pass without modifying their expectations.
 
-type Deque struct{}
-
-func (d *Deque) Append(v int) {
-	panic("TODO: implement Append")
+type Deque struct {
+	queue []int
 }
 
 func (d *Deque) AppendLeft(v int) {
-	panic("TODO: implement AppendLeft")
+	d.queue = slices.Insert(d.queue, 0, v)
 }
 
-func (d *Deque) Pop() int {
-	panic("TODO: implement Pop")
+func (d *Deque) Append(v int) {
+	d.queue = append(d.queue, v)
 }
 
 func (d *Deque) PopLeft() int {
-	panic("TODO: implement PopLeft")
+	if len(d.queue) == 0 {
+		panic("empty deque")
+	}
+	v := d.queue[0]
+	d.queue = d.queue[1:]
+	return v
+}
+
+func (d *Deque) Pop() int {
+	if len(d.queue) == 0 {
+		panic("empty deque")
+	}
+	v := d.queue[len(d.queue)-1]
+	d.queue = d.queue[:len(d.queue)-1]
+	return v
 }
 
 func (d *Deque) Len() int {
-	panic("TODO: implement Len")
+	return len(d.queue)
 }
