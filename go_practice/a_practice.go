@@ -159,7 +159,14 @@ func CollectUserNames(ds *DSPlayground) []string {
 }
 
 // 题目：实现 MergeTags，把新的标签切片合并进 Tags set，并返回新增数量。
+// MergeTags 直接向 ds.Tags 写入键值，但如果调用方传入的 DSPlayground 是零值（Tags == nil），这一行会 panic。调用前先检查并初始化：if ds.Tags == nil
+//
+//	{ ds.Tags = make(map[string]struct{}) } 再写入即可。
 func MergeTags(ds *DSPlayground, newTags []string) int {
+	if ds.Tags == nil {
+		ds.Tags = make(map[string]struct{})
+	}
+
 	originalTagsLen := len(ds.Tags)
 
 	for _, tag := range newTags {
