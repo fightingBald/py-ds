@@ -147,7 +147,7 @@ func TestCollectUserNames(t *testing.T) {
 		},
 	}
 
-	got := CollectUserNames(ds)
+	got := CollectUserNames(&ds)
 	assert.Equal(t, []string{"Alice", "alice", "bob"}, got)
 }
 

@@ -3,6 +3,24 @@
 ## Project Structure & Module Organization
 The repository is a single Go module (`go.mod`, Go 1.24). Introductory playground code sits in `counter/`, while `go_basic_tuto/` is split by topic: `a_basic_type/` for language fundamentals, `d_concurrency/` for goroutines and synchronization, and `e_web/` for chi-based HTTP examples. Practice problems live in `go_practice/`; each directory (`lru_cache/`, `deque/`, `ordered_dict/`, etc.) is an independent package with its own tests. Place fixtures and helper modules beside the code they serve, and add new exercises under the matching tutorial or practice section to keep the layout predictable.
 
+# 6) CODING & NAMING（通用编码规范）
+
+| Rule | Details                                                                     |
+| ---- | --------------------------------------------------------------------------- |
+| 格式化  | 强制格式化与静态检查（fmt/vet/linter/ruff/prettier 等）。                                 |
+| 命名   | 语义化、可读，避免 `data/tmp/info` 等空词。错误用 `ErrXxx`。                                 |
+| 结构   | 小函数小类型，单一职责；参数过多用配置 struct/Options。                                         |
+| 上下文  | I/O 必带上下文/超时；禁止将上下文存入结构体。                                                   |
+| 日志   | 结构化字段，分级打印，严禁 `print` 系调试遗留。                                                |
+| SQL  | 必须参数化/Builder/ORM；禁止字符串拼接；必写事务与隔离意图。                                        |
+| 语言特性 | 善用语言的最新特性（如 Go 泛型、Java 结构化并发、Python 3.12 模式匹配、TS 装饰器等），在保证可读性的前提下提升安全性与表达力。 |
+
+
+| 项     | 必须               | 禁止                  |
+| ----- | ---------------- | ------------------- |
+| 语言/版本 | 遵循项目声明版本与标准库优先   | 过时 API、私有魔改         |
+
+
 ## Build, Test, and Development Commands
 - `go fmt ./...`: canonical formatting across every package; run it before staging.
 - `go test ./...`: executes the entire suite, including tutorials and practice sets; required green before submitting.
